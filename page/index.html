@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Contact Map + Chat</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: 'Open Sans', sans-serif;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+
+    .form-container {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    .agent-btn {
+      position: absolute;
+      top: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    .agent-btn input {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      width: 250px;
+    }
+
+    .agent-btn button {
+      padding: 8px 15px;
+      background-color: #5FA269;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .agent-btn button:hover {
+      background-color: #4e8e56;
+    }
+
+    .chat-container {
+      position: absolute;
+      top: 100px;
+      left: 30px;
+      transform: translateX(-50%);
+
+      display: flex;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    .form-container input {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      width: 250px;
+    }
+
+    .form-container button {
+      padding: 8px 15px;
+      background-color: #5FA269;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .form-container button:hover {
+      background-color: #4e8e56;
+    }
+
+    /* Sidebar Chat */
+    .chat-sidebar {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 300px;
+      height: 100%;
+      background-color: #2f3e46;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      z-index: 1000;
+    }
+
+    .chat-header {
+      padding: 15px;
+      font-weight: bold;
+      background-color: #354f52;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+    }
+
+    .chat-input {
+      display: flex;
+      padding: 10px;
+      background-color: #3d5a5a;
+    }
+
+    .chat-input input {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+    }
+
+    .chat-input button {
+      margin-left: 10px;
+      padding: 8px 12px;
+      background-color: #84a98c;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .chat-input button:hover {
+      background-color: #6b8f74;
+    }
+
+    .message {
+      margin-bottom: 10px;
+    }
+
+    .message.you {
+      text-align: right;
+      color: #a8dadc;
+    }
+
+    .message.bot {
+      color: #f1faee;
+    }
+
+    /* Hide chat on small screens */
+    @media (max-width: 768px) {
+      .chat-sidebar {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Map Input -->
+  <div class="form-container">
+    <input type="text" id="latlngInput" placeholder="Enter lat,lng (e.g. 32.0853,34.7818)" />
+    <button onclick="goToLocation()">Show</button>
+  </div>
+
+    <div class="chat-container">
+    <script
+    src="https://cdn.jsdelivr.net/gh/logspace-ai/langflow-embedded-chat@v1.0.7/dist/build/static/js/bundle.min.js">
+    </script>
+    <langflow-chat
+        window_title="Tommy"
+        flow_id="8225f817-6e15-4b5a-82ba-f0629598c941"
+        host_url="http://localhost:3000">
+    </langflow-chat>
+    </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Sidebar Chat -->
+   <div class="chat-sidebar">
+    <div class="chat-header">Chat</div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="message bot">Hello! Ask us anything 😊</div>
+    </div>
+    <div class="chat-input">
+      <input type="text" id="chatInput" placeholder="Type a message..." />
+      <button onclick="sendMessage()">Send</button>
+    </div>
+  </div> 
+
+  <form class="agent-btn" method="post" action="/api/v1/uirender/send" onsubmit="return showMessage()">
+    <input type="text" name="name" id="new-item" placeholder="New item" required />
+    <button type="submit">Add</button>
+  </form>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([32.0853, 34.7818], 5);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let marker;
+
+    async function goToLocation() {
+      const input = document.getElementById('latlngInput').value;
+      const [lat, lng] = input.split(',').map(Number);
+
+      if (!isNaN(lat) && !isNaN(lng)) {
+        map.setView([lat, lng], 10);
+
+        const popupContent = `
+          <strong>Nice Choice!</strong><br>
+          Creating the best Intinary for this place...
+        `;
+
+        if (marker) {
+          marker.setLatLng([lat, lng]).setPopupContent(popupContent).openPopup();
+        } else {
+          marker = L.marker([lat, lng]).addTo(map)
+            .bindPopup(popupContent).openPopup();
+        }
+
+        const messages = document.getElementById('chatMessages');
+        messages.innerHTML += `<div class="message you">Searching the Best Places around...</div>`;
+        messages.scrollTop = messages.scrollHeight;
+
+        try {
+        const res = await fetch('http://localhost:3000/api/v1/run/8225f817-6e15-4b5a-82ba-f0629598c941?stream=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_value: `tell me something about this location and show me places to visit there, here is the latitude and longitude ${input}`, 
+                                output_type: "chat", 
+                                input_type:"chat"
+                                })
+        });
+
+        
+
+        const data = await res.json();
+        console.log(data);
+        const reply = data['outputs'][0]['outputs'][0]['results']['message']['text'] || 'No response 🤖';
+        console.log(reply);
+
+        messages.innerHTML += `<div class="message bot">${reply}</div>`;
+        messages.scrollTop = messages.scrollHeight;
+
+        } catch (err) {
+        console.error(err);
+        messages.innerHTML += `<div class="message bot">⚠️ Error contacting the server.</div>`;
+        }
+      
+        input.value = '';
+
+
+      } else {
+        alert('Invalid input! Use format: latitude,longitude');
+      }
+    }
+
+    function _sendMessage() {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      const messages = document.getElementById('chatMessages');
+
+      if (msg) {
+        messages.innerHTML += `<div class="message you">${msg}</div>`;
+        input.value = '';
+
+        setTimeout(() => {
+          messages.innerHTML += `<div class="message bot">Thanks for your message!</div>`;
+          messages.scrollTop = messages.scrollHeight;
+        }, 500);
+      }
+    }
+
+    async function sendMessage() {
+      const input = document.getElementById('chatInput');
+      const msg = input.value.trim();
+      const messages = document.getElementById('chatMessages');
+
+      if (msg) {
+        messages.innerHTML += `<div class="message you">${msg}</div>`;
+        input.value = '';
+        messages.scrollTop = messages.scrollHeight;
+
+        try {
+          const res = await fetch('http://localhost:3000/api/v1/run/8225f817-6e15-4b5a-82ba-f0629598c941?stream=false', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input_value: msg, 
+                                   output_type: "chat", 
+                                   input_type:"chat"
+                                })
+          });
+
+          
+
+          const data = await res.json();
+          console.log(data)
+          const reply = data['outputs'][0]['outputs'][0]['results']['message']["text"] || 'No response 🤖';
+
+          messages.innerHTML += `<div class="message bot">${reply}</div>`;
+          messages.scrollTop = messages.scrollHeight;
+
+        } catch (err) {
+          console.error(err);
+          messages.innerHTML += `<div class="message bot">⚠️ Error contacting the server.</div>`;
+        }
+      }
+    }
+  </script>
+
+
+</body>
+</html>
